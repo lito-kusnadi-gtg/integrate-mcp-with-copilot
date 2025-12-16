@@ -12,6 +12,7 @@ permissions:
 
 env:
   STEP_4_FILE: ".github/steps/4-step.md"
+  ISSUE_TITLE_PREFIX: "Exercise:"
 
 jobs:
   find_exercise:
