@@ -5,7 +5,8 @@ A super simple FastAPI application that allows students to view and sign up
 for extracurricular activities at Mergington High School.
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
 import os
@@ -93,6 +94,36 @@ def init_db():
 
 init_db()
 
+# --- Minimal Auth & Roles ---
+security = HTTPBearer(auto_error=False)
+
+# For simplicity, use static tokens mapped to roles. In a future change, replace with proper user DB.
+TOKENS = {
+    # student token(s)
+    "student-token-123": "student",
+    # organizer token(s)
+    "organizer-token-abc": "organizer",
+}
+
+
+def get_current_role(creds: HTTPAuthorizationCredentials = Depends(security)):
+    if not creds:
+        return None
+    token = creds.credentials
+    return TOKENS.get(token)
+
+
+@app.post("/login")
+def login(username: str, role: str):
+    """Return a static token for demo purposes based on requested role."""
+    if role not in {"student", "organizer"}:
+        raise HTTPException(status_code=400, detail="Invalid role")
+    # In a real system, verify username/password and issue JWT.
+    for t, r in TOKENS.items():
+        if r == role:
+            return {"token": t, "role": r}
+    raise HTTPException(status_code=500, detail="No token configured for role")
+
 
 @app.get("/")
 def root():
@@ -118,8 +149,11 @@ def get_activities():
 
 
 @app.post("/activities/{activity_name}/signup")
-def signup_for_activity(activity_name: str, email: str):
+def signup_for_activity(activity_name: str, email: str, role: str | None = Depends(get_current_role)):
     """Sign up a student for an activity"""
+    # If auth provided, ensure role is student
+    if role and role != "student":
+        raise HTTPException(status_code=403, detail="Only students can sign up")
     db = SessionLocal()
     try:
         act = db.query(Activity).filter(Activity.name == activity_name).first()
@@ -144,8 +178,11 @@ def signup_for_activity(activity_name: str, email: str):
 
 
 @app.delete("/activities/{activity_name}/unregister")
-def unregister_from_activity(activity_name: str, email: str):
+def unregister_from_activity(activity_name: str, email: str, role: str | None = Depends(get_current_role)):
     """Unregister a student from an activity"""
+    # If auth provided, ensure role is organizer (management action)
+    if role and role != "organizer":
+        raise HTTPException(status_code=403, detail="Only organizers can manage registrations")
     db = SessionLocal()
     try:
         act = db.query(Activity).filter(Activity.name == activity_name).first()
