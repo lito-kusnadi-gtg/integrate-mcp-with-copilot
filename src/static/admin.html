@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Admin - Audit Logs</title>
+    <link rel="stylesheet" href="styles.css" />
+    <style>
+      .admin-container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+
+      .admin-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+      }
+
+      .admin-actions {
+        display: flex;
+        gap: 10px;
+      }
+
+      .btn {
+        padding: 10px 20px;
+        background-color: #4caf50;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        text-decoration: none;
+        display: inline-block;
+      }
+
+      .btn:hover {
+        background-color: #45a049;
+      }
+
+      .btn-secondary {
+        background-color: #2196f3;
+      }
+
+      .btn-secondary:hover {
+        background-color: #0b7dda;
+      }
+
+      .stats-container {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+        margin-bottom: 20px;
+      }
+
+      .stat-card {
+        background-color: #f5f5f5;
+        padding: 15px;
+        border-radius: 8px;
+        border-left: 4px solid #4caf50;
+      }
+
+      .stat-card h4 {
+        margin: 0 0 5px 0;
+        color: #666;
+        font-size: 14px;
+      }
+
+      .stat-card p {
+        margin: 0;
+        font-size: 24px;
+        font-weight: bold;
+        color: #333;
+      }
+
+      .audit-table {
+        width: 100%;
+        border-collapse: collapse;
+        background-color: white;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
+
+      .audit-table th,
+      .audit-table td {
+        padding: 12px;
+        text-align: left;
+        border-bottom: 1px solid #ddd;
+      }
+
+      .audit-table th {
+        background-color: #4caf50;
+        color: white;
+        font-weight: bold;
+      }
+
+      .audit-table tr:hover {
+        background-color: #f5f5f5;
+      }
+
+      .action-badge {
+        display: inline-block;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: bold;
+      }
+
+      .action-signup {
+        background-color: #4caf50;
+        color: white;
+      }
+
+      .action-unregister {
+        background-color: #f44336;
+        color: white;
+      }
+
+      .action-upload {
+        background-color: #2196f3;
+        color: white;
+      }
+
+      .action-checkin {
+        background-color: #ff9800;
+        color: white;
+      }
+
+      .pagination {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 10px;
+        margin-top: 20px;
+      }
+
+      .pagination button {
+        padding: 8px 16px;
+        background-color: #4caf50;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+
+      .pagination button:disabled {
+        background-color: #ccc;
+        cursor: not-allowed;
+      }
+
+      .auth-container {
+        max-width: 400px;
+        margin: 100px auto;
+        padding: 30px;
+        background-color: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      }
+
+      .auth-container h2 {
+        margin-top: 0;
+        text-align: center;
+      }
+
+      .form-group {
+        margin-bottom: 15px;
+      }
+
+      .form-group label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: bold;
+      }
+
+      .form-group input {
+        width: 100%;
+        padding: 10px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        box-sizing: border-box;
+      }
+
+      .error-message {
+        color: #f44336;
+        margin-top: 10px;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Mergington High School</h1>
+      <h2>Admin - Audit Logs</h2>
+    </header>
+
+    <main>
+      <div id="auth-section" class="auth-container" style="display: none">
+        <h2>Admin Login</h2>
+        <form id="auth-form">
+          <div class="form-group">
+            <label for="admin-token">Admin Token:</label>
+            <input
+              type="password"
+              id="admin-token"
+              placeholder="Enter admin token"
+              required
+            />
+          </div>
+          <button type="submit" class="btn" style="width: 100%">Login</button>
+          <div id="auth-error" class="error-message" style="display: none"></div>
+        </form>
+      </div>
+
+      <div id="admin-content" class="admin-container" style="display: none">
+        <div class="admin-header">
+          <h3>Audit Log Viewer</h3>
+          <div class="admin-actions">
+            <button id="refresh-btn" class="btn">🔄 Refresh</button>
+            <a href="/admin/audit-logs/export" id="export-btn" class="btn btn-secondary" target="_blank">📥 Export CSV</a>
+            <a href="/static/index.html" class="btn btn-secondary">← Back to Activities</a>
+          </div>
+        </div>
+
+        <div class="stats-container" id="stats-container">
+          <!-- Stats will be loaded here -->
+        </div>
+
+        <div style="overflow-x: auto">
+          <table class="audit-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Timestamp</th>
+                <th>Action</th>
+                <th>User Email</th>
+                <th>Activity</th>
+                <th>Details</th>
+              </tr>
+            </thead>
+            <tbody id="audit-logs-body">
+              <!-- Audit logs will be loaded here -->
+            </tbody>
+          </table>
+        </div>
+
+        <div class="pagination">
+          <button id="prev-btn">← Previous</button>
+          <span id="page-info">Page 1</span>
+          <button id="next-btn">Next →</button>
+        </div>
+      </div>
+    </main>
+
+    <footer>
+      <p>&copy; 2023 Mergington High School</p>
+    </footer>
+
+    <script src="admin.js"></script>
+  </body>
+</html>
