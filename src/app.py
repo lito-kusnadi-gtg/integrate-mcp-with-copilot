@@ -5,7 +5,7 @@ A super simple FastAPI application that allows students to view and sign up
 for extracurricular activities at Mergington High School.
 """
 
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
@@ -117,6 +117,16 @@ init_db()
 
 
 # --- Audit Logging Helper Functions ---
+def get_client_ip(request: Request) -> str:
+    """Extract client IP address from request"""
+    # Check for X-Forwarded-For header (proxy/load balancer)
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    # Fallback to direct client IP
+    return request.client.host if request.client else "unknown"
+
+
 def log_audit_event(db, action: str, user_email: str, activity_name: str = None, details: str = None, ip_address: str = None):
     """Create an audit log entry"""
     audit_log = AuditLog(
@@ -134,7 +144,7 @@ def log_audit_event(db, action: str, user_email: str, activity_name: str = None,
 def cleanup_old_audit_logs():
     """Remove audit logs older than the retention period"""
     if AUDIT_LOG_RETENTION_DAYS <= 0:
-        return  # Retention disabled
+        return 0  # Retention disabled
     
     db = SessionLocal()
     try:
@@ -144,6 +154,28 @@ def cleanup_old_audit_logs():
         return deleted
     finally:
         db.close()
+
+
+# Track last cleanup time to avoid running on every request
+_last_cleanup_time = None
+_CLEANUP_INTERVAL_HOURS = 24
+
+
+def should_run_cleanup():
+    """Check if cleanup should run based on time since last cleanup"""
+    global _last_cleanup_time
+    if _last_cleanup_time is None:
+        return True
+    elapsed = datetime.utcnow() - _last_cleanup_time
+    return elapsed > timedelta(hours=_CLEANUP_INTERVAL_HOURS)
+
+
+def maybe_cleanup_audit_logs():
+    """Run cleanup only if enough time has passed"""
+    global _last_cleanup_time
+    if should_run_cleanup():
+        cleanup_old_audit_logs()
+        _last_cleanup_time = datetime.utcnow()
 
 
 # --- Minimal Auth & Roles ---
@@ -203,7 +235,7 @@ def get_activities():
 
 
 @app.post("/activities/{activity_name}/signup")
-def signup_for_activity(activity_name: str, email: str, role: str | None = Depends(get_current_role)):
+def signup_for_activity(activity_name: str, email: str, request: Request, role: str | None = Depends(get_current_role)):
     """Sign up a student for an activity"""
     # If auth provided, ensure role is student
     if role and role != "student":
@@ -227,8 +259,8 @@ def signup_for_activity(activity_name: str, email: str, role: str | None = Depen
         db.add(Participant(email=email, activity_id=act.id))
         db.commit()
         
-        # Log the audit event
-        log_audit_event(db, "signup", email, activity_name, f"Student signed up for {activity_name}")
+        # Log the audit event with IP address
+        log_audit_event(db, "signup", email, activity_name, f"Student signed up for {activity_name}", get_client_ip(request))
         
         return {"message": f"Signed up {email} for {activity_name}"}
     finally:
@@ -236,7 +268,7 @@ def signup_for_activity(activity_name: str, email: str, role: str | None = Depen
 
 
 @app.delete("/activities/{activity_name}/unregister")
-def unregister_from_activity(activity_name: str, email: str, role: str | None = Depends(get_current_role)):
+def unregister_from_activity(activity_name: str, email: str, request: Request, role: str | None = Depends(get_current_role)):
     """Unregister a student from an activity"""
     # If auth provided, ensure role is organizer (management action)
     if role and role != "organizer":
@@ -254,8 +286,8 @@ def unregister_from_activity(activity_name: str, email: str, role: str | None = 
         db.delete(part)
         db.commit()
         
-        # Log the audit event
-        log_audit_event(db, "unregister", email, activity_name, f"Student unregistered from {activity_name}")
+        # Log the audit event with IP address
+        log_audit_event(db, "unregister", email, activity_name, f"Student unregistered from {activity_name}", get_client_ip(request))
         
         return {"message": f"Unregistered {email} from {activity_name}"}
     finally:
@@ -271,8 +303,8 @@ def get_audit_logs(role: str | None = Depends(get_current_role), limit: int = 10
     
     db = SessionLocal()
     try:
-        # Clean up old logs first
-        cleanup_old_audit_logs()
+        # Clean up old logs periodically (not on every request)
+        maybe_cleanup_audit_logs()
         
         # Get logs with pagination
         logs = db.query(AuditLog).order_by(AuditLog.timestamp.desc()).limit(limit).offset(offset).all()

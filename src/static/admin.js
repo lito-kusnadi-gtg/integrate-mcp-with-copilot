@@ -3,8 +3,8 @@ let currentPage = 1;
 const logsPerPage = 50;
 
 document.addEventListener("DOMContentLoaded", () => {
-  // Check if admin token is stored
-  const storedToken = localStorage.getItem("adminToken");
+  // Check if admin token is stored in sessionStorage (more secure than localStorage)
+  const storedToken = sessionStorage.getItem("adminToken");
   if (storedToken) {
     adminToken = storedToken;
     showAdminContent();
@@ -57,7 +57,7 @@ async function handleAuth(event) {
 
     if (response.ok) {
       adminToken = token;
-      localStorage.setItem("adminToken", token);
+      sessionStorage.setItem("adminToken", token);
       showAdminContent();
       updateExportLink();
     } else {
@@ -171,7 +171,7 @@ async function loadAuditLogs() {
     if (!response.ok) {
       if (response.status === 403) {
         // Token expired or invalid
-        localStorage.removeItem("adminToken");
+        sessionStorage.removeItem("adminToken");
         showAuthSection();
         return;
       }
@@ -211,5 +211,14 @@ async function loadAuditLogs() {
 
 function formatTimestamp(timestamp) {
   const date = new Date(timestamp);
-  return date.toLocaleString();
+  // Include timezone information for clarity
+  return date.toLocaleString(undefined, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZoneName: 'short'
+  });
 }
