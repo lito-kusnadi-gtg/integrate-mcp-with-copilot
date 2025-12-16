@@ -23,6 +23,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const spotsLeft =
           details.max_participants - details.participants.length;
+        const isFull = spotsLeft <= 0;
 
         // Create participants HTML with delete icons instead of bullet points
         const participantsHTML =
@@ -40,9 +41,9 @@ document.addEventListener("DOMContentLoaded", () => {
             </div>`
             : `<p><em>No participants yet</em></p>`;
 
-        const availabilityText = spotsLeft > 0 
-          ? `${spotsLeft} spots left` 
-          : `<span style="color: #d32f2f; font-weight: bold;">FULL - No spots available</span>`;
+        const availabilityText = isFull
+          ? `<span class="full-capacity">FULL - No spots available</span>`
+          : `${spotsLeft} spots left`;
         
         activityCard.innerHTML = `
           <h4>${name}</h4>
@@ -59,7 +60,6 @@ document.addEventListener("DOMContentLoaded", () => {
         // Add option to select dropdown
         const option = document.createElement("option");
         option.value = name;
-        const isFull = spotsLeft <= 0;
         option.textContent = isFull ? `${name} (FULL)` : name;
         option.disabled = isFull;
         activitySelect.appendChild(option);
