@@ -11,7 +11,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
 import os
 from pathlib import Path
-from typing import List
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from typing import List
 
 from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
@@ -39,7 +42,7 @@ class Activity(Base):
     schedule = Column(String, nullable=False)
     max_participants = Column(Integer, nullable=False)
 
-    participants: List["Participant"] = relationship("Participant", back_populates="activity", cascade="all, delete-orphan")
+    participants = relationship("Participant", back_populates="activity", cascade="all, delete-orphan")
 
 
 class Participant(Base):
@@ -48,7 +51,7 @@ class Participant(Base):
     email = Column(String, nullable=False)
     activity_id = Column(Integer, ForeignKey("activities.id"), nullable=False)
 
-    activity: Activity = relationship("Activity", back_populates="participants")
+    activity = relationship("Activity", back_populates="participants")
 
     __table_args__ = (
         UniqueConstraint("email", "activity_id", name="uq_participant_email_activity"),
@@ -80,6 +83,8 @@ def init_db():
                  ["james@mergington.edu", "benjamin@mergington.edu"]),
                 ("Debate Team", "Develop public speaking and argumentation skills", "Fridays, 4:00 PM - 5:30 PM", 12,
                  ["charlotte@mergington.edu", "henry@mergington.edu"]),
+                ("Manga Maniacs", "Explore the fantastic stories of the most interesting characters from Japanese Manga (graphic novels).", "Tuesday at 7pm", 15,
+                 []),
             ]
             for name, description, schedule, maxp, emails in seed_data:
                 act = Activity(name=name, description=description, schedule=schedule, max_participants=maxp)
