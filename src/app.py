@@ -16,8 +16,9 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import List
 
-from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, UniqueConstraint
+from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, UniqueConstraint, DateTime
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
+from datetime import datetime, timedelta
 
 app = FastAPI(title="Mergington High School API",
               description="API for viewing and signing up for extracurricular activities")
@@ -32,6 +33,10 @@ DB_PATH = os.path.join(current_dir, "activities.db")
 engine = create_engine(f"sqlite:///{DB_PATH}", connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 Base = declarative_base()
+
+# --- Audit Log Configuration ---
+# Privacy-aware settings: configure retention period (in days)
+AUDIT_LOG_RETENTION_DAYS = int(os.environ.get("AUDIT_LOG_RETENTION_DAYS", "90"))  # Default 90 days
 
 
 class Activity(Base):
@@ -56,6 +61,17 @@ class Participant(Base):
     __table_args__ = (
         UniqueConstraint("email", "activity_id", name="uq_participant_email_activity"),
     )
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+    id = Column(Integer, primary_key=True)
+    timestamp = Column(DateTime, nullable=False, default=datetime.utcnow)
+    action = Column(String, nullable=False)  # signup, unregister, upload, check-in
+    user_email = Column(String, nullable=False)
+    activity_name = Column(String, nullable=True)
+    details = Column(String, nullable=True)
+    ip_address = Column(String, nullable=True)
 
 
 def init_db():
@@ -99,6 +115,37 @@ def init_db():
 
 init_db()
 
+
+# --- Audit Logging Helper Functions ---
+def log_audit_event(db, action: str, user_email: str, activity_name: str = None, details: str = None, ip_address: str = None):
+    """Create an audit log entry"""
+    audit_log = AuditLog(
+        timestamp=datetime.utcnow(),
+        action=action,
+        user_email=user_email,
+        activity_name=activity_name,
+        details=details,
+        ip_address=ip_address
+    )
+    db.add(audit_log)
+    db.commit()
+
+
+def cleanup_old_audit_logs():
+    """Remove audit logs older than the retention period"""
+    if AUDIT_LOG_RETENTION_DAYS <= 0:
+        return  # Retention disabled
+    
+    db = SessionLocal()
+    try:
+        cutoff_date = datetime.utcnow() - timedelta(days=AUDIT_LOG_RETENTION_DAYS)
+        deleted = db.query(AuditLog).filter(AuditLog.timestamp < cutoff_date).delete()
+        db.commit()
+        return deleted
+    finally:
+        db.close()
+
+
 # --- Minimal Auth & Roles ---
 security = HTTPBearer(auto_error=False)
 
@@ -108,6 +155,8 @@ TOKENS = {
     "student-token-123": "student",
     # organizer token(s)
     "organizer-token-abc": "organizer",
+    # admin token(s)
+    "admin-token-xyz": "admin",
 }
 
 
@@ -121,7 +170,7 @@ def get_current_role(creds: HTTPAuthorizationCredentials = Depends(security)):
 @app.post("/login")
 def login(username: str, role: str):
     """Return a static token for demo purposes based on requested role."""
-    if role not in {"student", "organizer"}:
+    if role not in {"student", "organizer", "admin"}:
         raise HTTPException(status_code=400, detail="Invalid role")
     # In a real system, verify username/password and issue JWT.
     for t, r in TOKENS.items():
@@ -177,6 +226,10 @@ def signup_for_activity(activity_name: str, email: str, role: str | None = Depen
 
         db.add(Participant(email=email, activity_id=act.id))
         db.commit()
+        
+        # Log the audit event
+        log_audit_event(db, "signup", email, activity_name, f"Student signed up for {activity_name}")
+        
         return {"message": f"Signed up {email} for {activity_name}"}
     finally:
         db.close()
@@ -200,6 +253,120 @@ def unregister_from_activity(activity_name: str, email: str, role: str | None = 
 
         db.delete(part)
         db.commit()
+        
+        # Log the audit event
+        log_audit_event(db, "unregister", email, activity_name, f"Student unregistered from {activity_name}")
+        
         return {"message": f"Unregistered {email} from {activity_name}"}
+    finally:
+        db.close()
+
+
+# --- Admin Endpoints ---
+@app.get("/admin/audit-logs")
+def get_audit_logs(role: str | None = Depends(get_current_role), limit: int = 100, offset: int = 0):
+    """Get audit logs - admin only"""
+    if role != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    db = SessionLocal()
+    try:
+        # Clean up old logs first
+        cleanup_old_audit_logs()
+        
+        # Get logs with pagination
+        logs = db.query(AuditLog).order_by(AuditLog.timestamp.desc()).limit(limit).offset(offset).all()
+        total = db.query(AuditLog).count()
+        
+        return {
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "logs": [
+                {
+                    "id": log.id,
+                    "timestamp": log.timestamp.isoformat(),
+                    "action": log.action,
+                    "user_email": log.user_email,
+                    "activity_name": log.activity_name,
+                    "details": log.details,
+                    "ip_address": log.ip_address
+                }
+                for log in logs
+            ]
+        }
+    finally:
+        db.close()
+
+
+@app.get("/admin/audit-logs/export")
+def export_audit_logs(role: str | None = Depends(get_current_role)):
+    """Export audit logs as CSV - admin only"""
+    if role != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    from fastapi.responses import StreamingResponse
+    import io
+    import csv
+    
+    db = SessionLocal()
+    try:
+        logs = db.query(AuditLog).order_by(AuditLog.timestamp.desc()).all()
+        
+        # Create CSV in memory
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        # Write header
+        writer.writerow(["ID", "Timestamp", "Action", "User Email", "Activity Name", "Details", "IP Address"])
+        
+        # Write data
+        for log in logs:
+            writer.writerow([
+                log.id,
+                log.timestamp.isoformat(),
+                log.action,
+                log.user_email,
+                log.activity_name or "",
+                log.details or "",
+                log.ip_address or ""
+            ])
+        
+        output.seek(0)
+        
+        return StreamingResponse(
+            iter([output.getvalue()]),
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=audit_logs.csv"}
+        )
+    finally:
+        db.close()
+
+
+@app.get("/admin/audit-logs/stats")
+def get_audit_stats(role: str | None = Depends(get_current_role)):
+    """Get audit log statistics - admin only"""
+    if role != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    db = SessionLocal()
+    try:
+        total_logs = db.query(AuditLog).count()
+        
+        # Count by action type
+        from sqlalchemy import func
+        action_counts = db.query(AuditLog.action, func.count(AuditLog.id)).group_by(AuditLog.action).all()
+        
+        # Get date range
+        oldest_log = db.query(AuditLog).order_by(AuditLog.timestamp.asc()).first()
+        newest_log = db.query(AuditLog).order_by(AuditLog.timestamp.desc()).first()
+        
+        return {
+            "total_logs": total_logs,
+            "action_counts": {action: count for action, count in action_counts},
+            "retention_days": AUDIT_LOG_RETENTION_DAYS,
+            "oldest_log": oldest_log.timestamp.isoformat() if oldest_log else None,
+            "newest_log": newest_log.timestamp.isoformat() if newest_log else None
+        }
     finally:
         db.close()
