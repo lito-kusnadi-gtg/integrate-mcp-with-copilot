@@ -83,7 +83,7 @@ def init_db():
                  ["james@mergington.edu", "benjamin@mergington.edu"]),
                 ("Debate Team", "Develop public speaking and argumentation skills", "Fridays, 4:00 PM - 5:30 PM", 12,
                  ["charlotte@mergington.edu", "henry@mergington.edu"]),
-                ("Manga Maniacs", "Explore the fantastic stories of the most interesting characters from Japanese Manga (graphic novels).", "Tuesdays, 7:00 PM - 8:00 PM", 15,
+                ("Manga Maniacs", "Explore the fantastic stories of the most peculiar characters from Japanese Manga (graphic novels).", "Tuesdays, 7:00 PM - 8:00 PM", 15,
                  []),
             ]
             for name, description, schedule, maxp, emails in seed_data:
