@@ -198,3 +198,8 @@ footer {
   padding: 20px;
   color: #666;
 }
+
+.full-capacity {
+  color: #d32f2f;
+  font-weight: bold;
+}
